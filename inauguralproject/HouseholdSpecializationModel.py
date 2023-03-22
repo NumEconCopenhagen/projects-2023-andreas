@@ -98,6 +98,40 @@ class HouseholdSpecializationModelClass:
         
         return utility - disutility
 
+    def calc_utility_(self,x):
+        """ calculate utility """
+
+        par = self.par
+        sol = self.sol
+
+        # a. consumption of market goods
+        C = par.wM*x[0] + par.wF*x[2]
+
+        # b. home production
+        if par.sigma == 0.0:
+            H = np.min(x[1],x[3])
+
+        elif par.sigma == 1.0:
+            H = x[1]**(1-par.alpha)*x[3]**par.alpha
+
+        else:
+            exponent = (par.sigma-1)/par.sigma
+            term1 = (1 - par.alpha) * x[1]**exponent
+            term2 = par.alpha * x[3]**exponent
+            H = (term1 + term2)**(1/exponent)
+
+        # c. total consumption utility
+        Q = C**par.omega*H**(1-par.omega)
+        utility = np.fmax(Q,1e-8)**(1-par.rho)/(1-par.rho)
+
+        # d. disutlity of work
+        epsilon_ = 1+1/par.epsilon
+        TM = x[0]+x[1]
+        TF = x[2]+x[3]
+        disutility = par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
+        
+        return utility - disutility    
+
     def solve_discrete(self,do_print=False):
         """ solve model discretely """
         
@@ -148,19 +182,23 @@ class HouseholdSpecializationModelClass:
         HF = np.nan
 
         varlist = [LM, HM, LF, HF]
+        x = np.array([LM, HM, LF, HF])
 
         # a. contraint function (negative if violated)
-        constraints = ({'type': 'ineq', 'fun': lambda LM,HM: LM + HM - 24},
-                       {'type': 'ineq', 'fun': lambda LF,HF: LF + HF - 24})
-        bounds = [(0,24) for x in varlist]
+        constraints = ({'type': 'ineq', 'fun': lambda x: 24-x[0]-x[1]},
+                       {'type': 'ineq', 'fun': lambda x: 24-x[2]-x[3]})
+        bounds = [(0,24),(0,24),(0,24),(0,24)]
 
         # b. call optimizer
-        initial_guess = 6 # some guess, should be feasible
+        initial_guess = [1,1,1,1] # some guess, should be feasible
         res = optimize.minimize(
-            lambda x: self.calc_utility(LM, HM, LF, HF), initial_guess,
+            self.calc_utility_, initial_guess,
             method='SLSQP', bounds=bounds, constraints=constraints)
 
         print(res.message) # check that the solver has terminated correctly
+        print(res.x)
+
+        return res.x
 
     def solve_wF_vec(self,discrete=False):
         """ solve model for vector of female wages """
