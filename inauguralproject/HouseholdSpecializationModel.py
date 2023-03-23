@@ -130,11 +130,11 @@ class HouseholdSpecializationModelClass:
         TF = x[2]+x[3]
         disutility = par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
         
-        return utility - disutility    
+        return - utility + disutility    
 
     def solve_discrete(self,do_print=False):
         """ solve model discretely """
-        
+
         par = self.par
         sol = self.sol
         opt = SimpleNamespace()
@@ -195,8 +195,7 @@ class HouseholdSpecializationModelClass:
             self.calc_utility_, initial_guess,
             method='SLSQP', bounds=bounds, constraints=constraints)
 
-        print(res.message) # check that the solver has terminated correctly
-        print(res.x)
+        # print(res.message) # check that the solver has terminated correctly
 
         return res.x
 
@@ -220,3 +219,53 @@ class HouseholdSpecializationModelClass:
         """ estimate alpha and sigma """
 
         pass
+
+    def solve_multi_par(self,par_name,par_list,discrete):
+        'solve model for multiple parameters'
+    
+        # a. store solutions in array
+        self.sol.array = np.zeros((len(par_list),4))
+
+        # b1. solve discretely
+        if discrete == True:
+
+            # loop over different values
+            for i,value in enumerate(par_list):
+                    
+                setattr(self.par,par_name,value) # set parameter value
+                opt = self.solve_discrete(do_print=False) # solve the model discretely
+                self.sol.array[i,:] = np.array([opt.LM,opt.HM,opt.LF,opt.HF]) # save solutions
+        
+        # b2. solve continuously
+        else:
+            
+            # loop over different values
+            for i,value in enumerate(par_list):
+                    
+                setattr(self.par,par_name,value) # set parameter value
+                opt = self.solve(do_print=False) # solve the model continuously
+                self.sol.array[i,:] = opt # save solutions
+
+        return self.sol.array
+
+    def plot_multi_par(self,x_list,y_function=None,x_lab=None,y_lab=None):
+        'plot H_F/H_M solution against different x values'
+
+        # a. construct H_F/H_M fraction from solution
+        frac = self.sol.array[:,3]/self.sol.array[:,1]
+
+        # b. apply functional form if specified and transform fraction to list
+        if y_function == None:
+            y_list = frac.tolist()
+        else:
+            y_list = y_function(frac).tolist()
+
+        # c. plot the results
+        plt.scatter(x_list,y_list)
+        
+        plt.grid(True) # plot settings
+        plt.xlabel(x_lab)
+        plt.ylabel(y_lab)
+
+        plt.show() # show the plot
+         
