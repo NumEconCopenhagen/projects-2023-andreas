@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import numpy as np
 from scipy import optimize
+from scipy.optimize import differential_evolution, LinearConstraint, Bounds
 
 import pandas as pd 
 import matplotlib.pyplot as plt
@@ -101,34 +102,31 @@ class HouseholdSpecializationModelClass:
     def calc_utility_(self,x):
         """ calculate utility """
 
-        par = self.par
-        sol = self.sol
-
         # a. consumption of market goods
-        C = par.wM*x[0] + par.wF*x[2]
+        C = self.par.wM*x[0] + self.par.wF*x[2]
 
         # b. home production
-        if par.sigma == 0.0:
+        if self.par.sigma == 0.0:
             H = np.min(x[1],x[3])
 
-        elif par.sigma == 1.0:
-            H = x[1]**(1-par.alpha)*x[3]**par.alpha
+        elif self.par.sigma == 1.0:
+            H = x[1]**(1-self.par.alpha)*x[3]**self.par.alpha
 
         else:
-            exponent = (par.sigma-1)/par.sigma
-            term1 = (1 - par.alpha) * x[1]**exponent
-            term2 = par.alpha * x[3]**exponent
+            exponent = (self.par.sigma-1)/self.par.sigma
+            term1 = (1 - self.par.alpha) * x[1]**exponent
+            term2 = self.par.alpha * x[3]**exponent
             H = (term1 + term2)**(1/exponent)
 
         # c. total consumption utility
-        Q = C**par.omega*H**(1-par.omega)
-        utility = np.fmax(Q,1e-8)**(1-par.rho)/(1-par.rho)
+        Q = C**self.par.omega*H**(1-self.par.omega)
+        utility = np.fmax(Q,1e-8)**(1-self.par.rho)/(1-self.par.rho)
 
         # d. disutlity of work
-        epsilon_ = 1+1/par.epsilon
+        epsilon_ = 1+1/self.par.epsilon
         TM = x[0]+x[1]
         TF = x[2]+x[3]
-        disutility = par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
+        disutility = self.par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
         
         return - utility + disutility    
 
@@ -173,29 +171,14 @@ class HouseholdSpecializationModelClass:
     def solve(self,do_print=False):
         """ solve model continously """
 
-        par = self.par
-        sol = self.sol
-
-        LM = np.nan # vector
-        HM = np.nan
-        LF = np.nan
-        HF = np.nan
-
-        varlist = [LM, HM, LF, HF]
-        x = np.array([LM, HM, LF, HF])
-
         # a. contraint function (negative if violated)
-        constraints = ({'type': 'ineq', 'fun': lambda x: 24-x[0]-x[1]},
-                       {'type': 'ineq', 'fun': lambda x: 24-x[2]-x[3]})
-        bounds = [(0,24),(0,24),(0,24),(0,24)]
+        # Define the constraint matrices and vectors
+        lc = LinearConstraint([[1,1,0,0],[0,0,1,1]],[0,0],[24,24])
+
+        # Create a list of LinearConstraint object
 
         # b. call optimizer
-        initial_guess = [1,1,1,1] # some guess, should be feasible
-        res = optimize.minimize(
-            self.calc_utility_, initial_guess,
-            method='SLSQP', bounds=bounds, constraints=constraints)
-
-        # print(res.message) # check that the solver has terminated correctly
+        res = optimize.differential_evolution(self.calc_utility_,bounds=[(0,24),(0,24),(0,24),(0,24)],constraints=lc)
 
         return res.x
 
@@ -203,26 +186,64 @@ class HouseholdSpecializationModelClass:
         """ solve model for vector of female wages """
 
         pass
-
-    def run_regression(self):
-        """ run regression """
-
-        par = self.par
-        sol = self.sol
-
-        x = np.log(par.wF_vec)
-        y = np.log(sol.HF_vec/sol.HM_vec)
-        A = np.vstack([np.ones(x.size),x]).T
-        sol.beta0,sol.beta1 = np.linalg.lstsq(A,y,rcond=None)[0]
     
     def estimate(self,alpha=None,sigma=None):
         """ estimate alpha and sigma """
 
-        pass
+        # a. output of this function to be minimized
+        def squared_dev(x):
+
+            # set alpha and beta
+            setattr(self.par,'sigma',x[0])
+            setattr(self.par,'alpha',x[1])
+            
+            # true beta0 and beta1
+            beta = np.array([0.4,-0.1])
+
+            # list of wages to solve model for
+            wages = [0.8,0.9,1.0,1.1,1.2]
+
+            # solve the model for different wages
+            self.solve_multi_par('wF',wages,discrete=False)
+
+            # run regression and save output
+            beta_hat = self.run_regression()
+            self.sol.beta0 = beta_hat[0]
+            self.sol.beta1 = beta_hat[1]
+
+            print('Squared deviation: ' + str(np.sum((beta - beta_hat) ** 2)))
+
+            return np.sum((beta - beta_hat) ** 2)
+
+        # array = np.zeros(2)
+        # array[0] = 1.0
+        # list = np.arange(0.0,1.0,0.1).tolist()
+        # list_ = []
+        # sqd = []
+
+        # for x in list:
+        #     new_array = np.copy(array)  # create a new copy of the array
+        #     new_array[1] = x  # modify the copy
+        #     list_.append(new_array)  # append the copy to the list
+
+        # for x in list_:
+        #     sqd.append(squared_dev(x))
+
+        # plt.scatter(list,sqd)
+        # plt.show()
+
+        # b. call optimizer
+
+        # Create a list of LinearConstraint object
+
+        # b. call optimizer
+        res = optimize.differential_evolution(squared_dev,bounds=[(0,2),(0,1)],tol=3.0)
+
+        # print(res.message) # check that the solver has terminated correctly
 
     def solve_multi_par(self,par_name,par_list,discrete):
         'solve model for multiple parameters'
-    
+
         # a. store solutions in array
         self.sol.array = np.zeros((len(par_list),4))
 
@@ -248,7 +269,7 @@ class HouseholdSpecializationModelClass:
 
         return self.sol.array
 
-    def plot_multi_par(self,x_list,y_function=None,x_lab=None,y_lab=None):
+    def plot_multi_par(self,x_list,y_function=None,x_lab=None,y_lab=None,show_reg=False):
         'plot H_F/H_M solution against different x values'
 
         # a. construct H_F/H_M fraction from solution
@@ -262,10 +283,28 @@ class HouseholdSpecializationModelClass:
 
         # c. plot the results
         plt.scatter(x_list,y_list)
+
+        # plot regression line if told
+        if show_reg == True:
+            y_list_ = [self.sol.beta0 + self.sol.beta1*x for x in x_list]
+            plt.plot(x_list,y_list_)
         
         plt.grid(True) # plot settings
         plt.xlabel(x_lab)
         plt.ylabel(y_lab)
 
         plt.show() # show the plot
-         
+
+    def run_regression(self):
+        """ run regression """
+
+        par = self.par
+
+        x = np.log(par.wF_vec) # remember wF = 1
+        A = np.vstack([np.ones(x.size),x]).T
+        y = np.log(self.sol.array[:,3]/self.sol.array[:,1])
+        self.sol.beta0,self.sol.beta1 = np.linalg.lstsq(A,y,rcond=None)[0]
+
+        beta_hat = np.array([self.sol.beta0,self.sol.beta1])
+
+        return beta_hat
