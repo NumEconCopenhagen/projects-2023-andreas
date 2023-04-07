@@ -12,7 +12,7 @@ def clean_taxes():
     # read file and remove unnecessary rows
     taxes = pd.read_excel('SKAT.xlsx', skiprows=2)
 
-    # remove unnecessary columns
+    # remove unnecessary column
     taxes.drop(columns = ['Unnamed: 0'], axis=1, inplace=True) # axis = 1 -> columns, inplace=True -> changed, no copy made
 
     # remove columns from 1947-2007 and 2022
@@ -68,7 +68,7 @@ def plot_wages_taxes(merged):
     # Display the plot
     plt.show()
 
-def plot_predicted_taxes(merged, reg=False):
+def plot_predicted_taxes(merged):
     'plot personal income taxes predicted from mean implicit tax rate'
 
     # Create plot
