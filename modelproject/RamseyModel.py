@@ -312,7 +312,6 @@ class RamseyModelClass():
 
             fig.legend(handles=handles, labels=labels, loc='lower right',bbox_to_anchor=(0.85, 0.275))
 
-
 def production(par,Gamma,K_lag):
     """ production and factor prices """
 
