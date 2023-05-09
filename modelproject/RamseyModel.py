@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import numpy as np
 from scipy import optimize
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 # plot settings
 plt.rcParams.update({"axes.grid":True,"grid.color":"black","grid.alpha":"0.25","grid.linestyle":"--"})
@@ -31,7 +32,7 @@ class RamseyModelClass():
 
         par.sigma = 2.0 # CRRA coefficient
         par.beta = np.nan # discount factor
-        par.lambdaa = 0.1 # share of optimizing households
+        par.lambdaa = 0.5 # share of optimizing households
 
         # b. firms
         par.Gamma = np.nan
@@ -91,9 +92,9 @@ class RamseyModelClass():
             print(f'w_ss = {ss.w:.4f}')
             print(f'Gamma = {ss.Gamma:.4f}')
             print(f'beta = {par.beta:.4f}')
-            print(f'C_opt = {ss.C_opt:.4f}')
-            print(f'C_htm = {ss.C_htm:.4f}')
-            print(f'C = {ss.C:.4f}')
+            print(f'C_opt_ss = {ss.C_opt:.4f}')
+            print(f'C_htm_ss = {ss.C_htm:.4f}')
+            print(f'C_ss = {ss.C:.4f}')
 
     def evaluate_path_errors(self,do_print=False):
         """ evaluate errors along transition path """
@@ -189,7 +190,7 @@ class RamseyModelClass():
 
         # b. initial guess
         x0 = np.nan*np.ones((2,par.Tpath))
-        x0[0,:] = ss.C
+        x0[0,:] = ss.C_opt
         x0[1,:] = ss.K
         x0 = x0.ravel()
 
@@ -214,53 +215,74 @@ class RamseyModelClass():
         # d. final evaluation
         eq_sys(x)
 
-    def big_plot(self,ax1,ax2,ax3,ax4,ax5):
+    def big_plot(self):
         """ plot transition paths for variables """
 
-        path = self.path
-
-        end = 120
-
-        # consumption
-        ax1.plot(path.C_htm,label=r'$C^{Htm}_t$')
-        ax1.plot(path.C_opt,label=r'$C^{Opt}_t$')
-        ax1.set_ylim(0.2,0.6)
-        ax1.set_xlim(0,end)
-
-        # return on capital
-        ax2.plot(path.r,label=r'$r_t$')
-        ax2.set_ylim(0,0.1)
-        ax2.set_xlim(0,end)
-
-        # wage
-        ax3.plot(path.w,label=r'$w_t$')
-        ax3.set_ylim(0.5,1)
-        ax3.set_xlim(0,end)    
-
-        # production
-        ax4.plot(path.Y,label=r'$Y_t$')
-        ax4.set_ylim(0.5,1.5)
-        ax4.set_xlim(0,end)
-
-        # capital
-        ax5.plot(path.K,label=r'$K_t$')
-        ax5.set_ylim(2.0,5.0)
-        ax5.set_xlim(0,end)       
-
-    def simulate(self,values):
-        """ simulate the model for different parameter values and plot """
-
+        # plot setup
         fig = plt.figure(figsize=(15,10))
-        ax1 = fig.add_subplot(2,3,3)
+        
+        ax1 = fig.add_subplot(2,3,1)
         ax2 = fig.add_subplot(2,3,2)
-        ax3 = fig.add_subplot(2,3,1)
+        ax3 = fig.add_subplot(2,3,3)
         ax4 = fig.add_subplot(2,3,4)                
         ax5 = fig.add_subplot(2,3,5)
 
-        for value in values:
+        ax1.set_title(r'$r_t$')
+        ax2.set_title(r'$w_t$')
+        ax3.set_title(r'$C_t$')
+        ax4.set_title(r'$Y_t$')
+        ax5.set_title(r'$K_t$')
+
+        end = 120 # plot periods
+
+        ax1.set_xlim(0,end)
+        ax2.set_xlim(0,end)
+        ax3.set_xlim(0,end)
+        ax4.set_xlim(0,end)
+        ax5.set_xlim(0,end) 
+        
+        ax1.plot(self.path.r)
+        ax2.plot(self.path.w)
+        ax3.plot(self.path.C_opt,label=r'$C_t^{Opt}$')
+        ax3.plot(self.path.C_htm,label=r'$C_t^{Htm}$')
+        ax4.plot(self.path.Y)
+        ax5.plot(self.path.K)
+
+        ax3.legend()        
+
+    def simulate_and_plot(self,parameter,values):
+        """ simulate the model for different parameter values and plots paths """
+
+        # plot setup
+        fig = plt.figure(figsize=(15,10))
+        
+        ax1 = fig.add_subplot(2,3,1)
+        ax2 = fig.add_subplot(2,3,2)
+        ax3 = fig.add_subplot(2,3,3)
+        ax4 = fig.add_subplot(2,3,4)                
+        ax5 = fig.add_subplot(2,3,5)
+
+        ax1.set_title(r'$r_t$')
+        ax2.set_title(r'$w_t$')
+        ax3.set_title(r'$C_t$')
+        ax4.set_title(r'$Y_t$')
+        ax5.set_title(r'$K_t$')
+
+        end = 120 # plot periods
+
+        ax1.set_xlim(0,end)
+        ax2.set_xlim(0,end)
+        ax3.set_xlim(0,end)
+        ax4.set_xlim(0,end)
+        ax5.set_xlim(0,end)
+
+        colors = ['blue', 'green', 'red', 'orange', 'purple']
+
+        # loop over parameter values
+        for i,value in enumerate(values):
 
             # a. set parameter value
-            self.par.lambdaa = value
+            setattr(self.par,parameter,value)
 
             # b. find steady state
             self.find_steady_state(KY_ss=4.0,do_print=False)
@@ -269,10 +291,27 @@ class RamseyModelClass():
             self.calculate_jacobian()
 
             # d. solve
-            self.solve()
+            self.solve(do_print=False)
 
             # e. plot
-            self.big_plot(ax1,ax2,ax3,ax4,ax5)
+            color = colors[i % len(colors)] 
+
+            ax1.plot(self.path.r,color=color)
+            ax2.plot(self.path.w,color=color)
+            ax3.plot(self.path.C_opt,color=color)
+            ax3.plot(self.path.C_htm,color=color,linestyle='--')
+            ax4.plot(self.path.Y,color=color)
+            ax5.plot(self.path.K,color=color)
+
+            # custom legend
+            handles = [Line2D([0], [0], color=colors[j], label='Value = '+str(value)) for j,value in enumerate(values)]
+            handles.append(Line2D([0], [0], color='black', linestyle='--', label=r'$C_t^{Htm}$'))
+            handles.append(Line2D([0], [0], color='black', linestyle='-',  label=r'$C_t^{Opt}$'))
+
+            labels = [h.get_label() for h in handles]
+
+            fig.legend(handles=handles, labels=labels, loc='lower right',bbox_to_anchor=(0.85, 0.275))
+
 
 def production(par,Gamma,K_lag):
     """ production and factor prices """
