@@ -84,17 +84,12 @@ class RamseyModelClass():
         ss.C_opt = ss.C - ss.C_htm
 
         if do_print:
+            
+            varnames = ['Y_ss','K_ss/Y_ss','rk_ss','r_ss','w_ss','Gamma','beta','C_opt_ss','C_htm_ss','C_ss']
+            varvalues = [ss.Y,ss.K/ss.Y,ss.rk,ss.r,ss.w,ss.Gamma,par.beta,ss.C_opt,ss.C_htm,ss.C]
 
-            print(f'Y_ss = {ss.Y:.4f}')
-            print(f'K_ss/Y_ss = {ss.K/ss.Y:.4f}')
-            print(f'rk_ss = {ss.rk:.4f}')
-            print(f'r_ss = {ss.r:.4f}')
-            print(f'w_ss = {ss.w:.4f}')
-            print(f'Gamma = {ss.Gamma:.4f}')
-            print(f'beta = {par.beta:.4f}')
-            print(f'C_opt_ss = {ss.C_opt:.4f}')
-            print(f'C_htm_ss = {ss.C_htm:.4f}')
-            print(f'C_ss = {ss.C:.4f}')
+            for name,value in zip(varnames,varvalues):
+                print(f'{name:10s} = {value:.4f}')
 
     def evaluate_path_errors(self,do_print=False):
         """ evaluate errors along transition path """
