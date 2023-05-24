@@ -42,7 +42,7 @@ class HouseholdSpecializationModelClass:
         sol.beta0 = np.nan
         sol.beta1 = np.nan
 
-    def calc_utility(self,LM,HM,LF,HF,expand=False):
+    def calc_utility(self,LM,HM,LF,HF,expand=False,estimate=False):
         """ calculate utility """
 
         par = self.par
@@ -52,7 +52,10 @@ class HouseholdSpecializationModelClass:
 
         # b. home production
         if par.sigma == 0.0:
-            H = np.min(HM,HF)
+            if estimate == True:
+                H = min(HM,HF) # optimizer does not like np.min?
+            else:
+                H = np.min(HM,HF)
 
         elif par.sigma == 1.0:
             H = HM**(1-par.alpha)*HF**par.alpha
@@ -65,22 +68,29 @@ class HouseholdSpecializationModelClass:
 
         # c. total consumption utility
         Q = C**par.omega*H**(1-par.omega)
-        utility = np.fmax(Q,1e-8)**(1-par.rho)/(1-par.rho)
+        
+        if estimate == True:
+            utility = max(Q,1e-8)**(1-par.rho)/(1-par.rho) # optimizer does not like np.fmax?
+        else:
+            utility = np.fmax(Q,1e-8)**(1-par.rho)/(1-par.rho)
 
-        # d. disutlity of work
+        # d. disutility of work
+
+        # d1. total hours
         TM = LM+HM
         TF = LF+HF
-        epsilon_ = 1+1/par.epsilon
 
+        # d2. seperate utility from house work and market work (expansion in question 5)
+        epsilon_ = 1+1/par.epsilon
         epsilonM_ = 1+1/par.epsilonM
         epsilonF_ = 1+1/par.epsilonF
         disutilityM = HM**epsilonM_/epsilonM_+LM**epsilon_/epsilon_
         disutilityF = HF**epsilonF_/epsilonF_+LF**epsilon_/epsilon_
 
-        if expand == True: # only relevant for model expansion in question 5
+        # d3. total disutility of work
+        if expand == True:
             disutility = par.nu*(disutilityM + disutilityF)
-
-        if expand == False:    
+        else:  
             disutility = par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
         
         return utility - disutility
@@ -121,7 +131,7 @@ class HouseholdSpecializationModelClass:
 
         return opt
 
-    def solve(self,expand):
+    def solve(self,expand,estimate=False):
         """ solve model continuously """
 
         # a. contraint function
@@ -129,7 +139,7 @@ class HouseholdSpecializationModelClass:
 
         # b. wrapper function
         def calc_utility_(x):                 
-            return -self.calc_utility(x[0],x[1],x[2],x[3],expand)
+            return -self.calc_utility(x[0],x[1],x[2],x[3],expand,estimate)
 
         # b. call optimizer
         res = optimize.minimize(calc_utility_,
@@ -139,7 +149,7 @@ class HouseholdSpecializationModelClass:
 
         return res.x
 
-    def solve_multi_par(self,par_name,par_list,expand,discrete):
+    def solve_multi_par(self,par_name,par_list,expand,discrete,estimate=False):
         'solve model for multiple parameters'
 
         # a. store solutions in array
@@ -162,7 +172,7 @@ class HouseholdSpecializationModelClass:
             for i,value in enumerate(par_list):
                     
                 setattr(self.par,par_name,value) # set parameter value
-                opt = self.solve(expand) # solve the model
+                opt = self.solve(expand,estimate) # solve the model
                 self.sol.array[i,:] = opt # save solutions
 
         return self.sol.array
@@ -196,10 +206,7 @@ class HouseholdSpecializationModelClass:
     def estimate(self,expand):
         """ estimate alpha and sigma """
 
-        # a. set seed as global minimizer is stochastic
-        np.random.seed(2023)
-
-        # b. output of this function to be minimized
+        # a. output of this function to be minimized
         def squared_dev(x):
 
             # 1. set alpha and beta
@@ -214,7 +221,7 @@ class HouseholdSpecializationModelClass:
             wages = [0.8,0.9,1.0,1.1,1.2]
 
             # 4. solve the model for different wages
-            self.solve_multi_par('wF',wages,expand,discrete=False)
+            self.solve_multi_par('wF',wages,expand,estimate=True,discrete=False)
 
             # 5. run regression and save output
             beta_hat = self.run_regression()
@@ -223,7 +230,7 @@ class HouseholdSpecializationModelClass:
 
             return np.sum((beta - beta_hat) ** 2)
 
-        # c. call optimizer
+        # b. call optimizer
         res = optimize.minimize(squared_dev,
                                 x0=[0.75,0.75],
                                 method='Nelder-Mead',
