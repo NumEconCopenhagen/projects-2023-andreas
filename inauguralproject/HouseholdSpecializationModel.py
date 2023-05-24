@@ -16,6 +16,8 @@ class HouseholdSpecializationModelClass:
         par.rho = 2.0
         par.nu = 0.001
         par.epsilon = 1.0
+        par.epsilonM = 1.0
+        par.epsilonF = 1.0
         par.omega = 0.5 
 
         # c. household production
@@ -40,7 +42,7 @@ class HouseholdSpecializationModelClass:
         sol.beta0 = np.nan
         sol.beta1 = np.nan
 
-    def calc_utility(self,LM,HM,LF,HF):
+    def calc_utility(self,LM,HM,LF,HF,expand=False):
         """ calculate utility """
 
         par = self.par
@@ -57,39 +59,29 @@ class HouseholdSpecializationModelClass:
 
         else:
             exponent = (par.sigma-1)/par.sigma
-
-            # special case for negative exponent as we cannot divide by 0
-            if exponent < 0.0:
-                
-                # initialize terms of utility
-                term1 = np.full(HM.size,np.inf)
-                term2 = np.full(HM.size,np.inf)
-                H = np.zeros(HM.size)
-
-                # only for non-zero indices of HM and HF
-                zero_indices_HM = (HM == 0) 
-                zero_indices_HF = (HF == 0)
-                term1[~zero_indices_HM] = (1 - par.alpha) * HM[~zero_indices_HM]**exponent
-                term2[~zero_indices_HF] = par.alpha * HF[~zero_indices_HF]**exponent
-                
-                # only for non-infinity indices of term1 and term2
-                inf_indices = (term1 == np.inf) | (term2 == np.inf)
-                H[~inf_indices] = (term1[~inf_indices] + term2[~inf_indices])**(1/exponent)
-            
-            else:
-                term1 = (1 - par.alpha) * HM**exponent
-                term2 = par.alpha * HF**exponent
-                H = (term1 + term2)**(1/exponent)
+            term1 = (1 - par.alpha) * HM**exponent
+            term2 = par.alpha * HF**exponent
+            H = (term1 + term2)**(1/exponent)
 
         # c. total consumption utility
         Q = C**par.omega*H**(1-par.omega)
         utility = np.fmax(Q,1e-8)**(1-par.rho)/(1-par.rho)
 
         # d. disutlity of work
-        epsilon_ = 1+1/par.epsilon
         TM = LM+HM
         TF = LF+HF
-        disutility = par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
+        epsilon_ = 1+1/par.epsilon
+
+        epsilonM_ = 1+1/par.epsilonM
+        epsilonF_ = 1+1/par.epsilonF
+        disutilityM = HM**epsilonM_/epsilonM_+LM**epsilon_/epsilon_
+        disutilityF = HF**epsilonF_/epsilonF_+LF**epsilon_/epsilon_
+
+        if expand == True: # only relevant for model expansion in question 5
+            disutility = par.nu*(disutilityM + disutilityF)
+
+        if expand == False:    
+            disutility = par.nu*(TM**epsilon_/epsilon_+TF**epsilon_/epsilon_)
         
         return utility - disutility
 
@@ -99,7 +91,7 @@ class HouseholdSpecializationModelClass:
         opt = SimpleNamespace()
         
         # a. all possible choices
-        x = np.linspace(0,24,49)
+        x = np.linspace(1e-8,24,49)
         LM,HM,LF,HF = np.meshgrid(x,x,x,x) # all combinations
     
         LM = LM.ravel() # vector
@@ -129,22 +121,25 @@ class HouseholdSpecializationModelClass:
 
         return opt
 
-    def solve(self,do_print=False):
+    def solve(self,expand):
         """ solve model continuously """
 
         # a. contraint function
         lc = LinearConstraint([[1,1,0,0],[0,0,1,1]],[0,0],[24,24])
 
         # b. wrapper function
-        def calc_utility_(x):
-            return -self.calc_utility(x[0],x[1],x[2],x[3])
+        def calc_utility_(x):                 
+            return -self.calc_utility(x[0],x[1],x[2],x[3],expand)
 
         # b. call optimizer
-        res = optimize.differential_evolution(calc_utility_,bounds=[(0,24),(0,24),(0,24),(0,24)],constraints=lc)
+        res = optimize.minimize(calc_utility_,
+                                x0=[5,5,5,5],
+                                method='BFGS',
+                                bounds=[(0,24),(0,24),(0,24),(0,24)],constraints=lc)
 
         return res.x
 
-    def solve_multi_par(self,par_name,par_list,discrete):
+    def solve_multi_par(self,par_name,par_list,expand,discrete):
         'solve model for multiple parameters'
 
         # a. store solutions in array
@@ -167,7 +162,7 @@ class HouseholdSpecializationModelClass:
             for i,value in enumerate(par_list):
                     
                 setattr(self.par,par_name,value) # set parameter value
-                opt = self.solve(do_print=False) # solve the model
+                opt = self.solve(expand) # solve the model
                 self.sol.array[i,:] = opt # save solutions
 
         return self.sol.array
@@ -198,10 +193,13 @@ class HouseholdSpecializationModelClass:
 
         plt.show() # show the plot
 
-    def estimate(self,alpha=None,sigma=None):
+    def estimate(self,expand):
         """ estimate alpha and sigma """
 
-        # a. output of this function to be minimized
+        # a. set seed as global minimizer is stochastic
+        np.random.seed(2023)
+
+        # b. output of this function to be minimized
         def squared_dev(x):
 
             # 1. set alpha and beta
@@ -209,13 +207,14 @@ class HouseholdSpecializationModelClass:
             setattr(self.par,'alpha',x[1])
             
             # 2. true beta0 and beta1
-            beta = np.array([0.4,-0.1])
+            beta = np.array([self.par.beta0_target,
+                             self.par.beta1_target])
 
             # 3. list of wages to solve model for
             wages = [0.8,0.9,1.0,1.1,1.2]
 
             # 4. solve the model for different wages
-            self.solve_multi_par('wF',wages,discrete=False)
+            self.solve_multi_par('wF',wages,expand,discrete=False)
 
             # 5. run regression and save output
             beta_hat = self.run_regression()
@@ -224,8 +223,11 @@ class HouseholdSpecializationModelClass:
 
             return np.sum((beta - beta_hat) ** 2)
 
-        # b. call optimizer
-        res = optimize.differential_evolution(squared_dev,bounds=[(0,2),(0,1)],tol=3.0)
+        # c. call optimizer
+        res = optimize.minimize(squared_dev,
+                                x0=[0.75,0.75],
+                                method='Nelder-Mead',
+                                bounds=[(0,2),(0,1)],tol=0.01)
 
         return res
 
